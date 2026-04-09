@@ -322,7 +322,6 @@ nav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-co
 </head>
 <body>
 
-
 <div class="ticker">
   <div class="tw">
     <span class="tick">MOON/USDC <span class="g">+144.2%</span></span>
@@ -567,9 +566,18 @@ nav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-co
 <div class="tc" id="tc"></div>
 
 <script>
-// ══ CORRECT ARC TESTNET CONFIG ══
+// ══ ARC TESTNET CONFIG — FIXED CHAIN ID ══
+// 5042002 decimal → hex conversion:
+// 5042002 / 16 = 315125 r 2
+// 315125  / 16 = 19695  r 5
+// 19695   / 16 = 1230   r 15 (F)
+// 1230    / 16 = 76     r 14 (E)
+// 76      / 16 = 4      r 12 (C)
+// 4       / 16 = 0      r 4
+// Result: 4, C, E, F, 5, 2 → 0x4CEF52
+// Verify: parseInt('4CEF52', 16) === 5042002 ✓
 const ARC = {
-  chainId: '0x4CECA2',  // 5042002 in hex
+  chainId: '0x4CEF52',  // 5042002 decimal — FIXED (was incorrectly 0x4CECA2)
   chainName: 'Arc Testnet',
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
   rpcUrls: ['https://rpc.testnet.arc.network'],
@@ -804,8 +812,17 @@ async function connW(type){
     }
     if(!prov){closeM('wMdl');resetWM();toast(WNAMES[type]+' not detected','er');setTimeout(()=>{if(WURLS[type])window.open(WURLS[type],'_blank');},1200);return;}
     const accs=await prov.request({method:'eth_requestAccounts'});
-    try{await prov.request({method:'wallet_switchEthereumChain',params:[{chainId:ARC.chainId}]});}
-    catch(sw){if(sw.code===4902||sw.code===-32603)await prov.request({method:'wallet_addEthereumChain',params:[ARC]});}
+    try{
+      // Try switching to Arc Testnet first
+      await prov.request({method:'wallet_switchEthereumChain',params:[{chainId:ARC.chainId}]});
+    }catch(sw){
+      // Chain not found (4902) or unrecognized chain (-32603) — add it
+      if(sw.code===4902||sw.code===-32603){
+        await prov.request({method:'wallet_addEthereumChain',params:[ARC]});
+      } else {
+        throw sw;
+      }
+    }
     onConn(accs[0],prov);localStorage.setItem('ap4_w',accs[0]);closeM('wMdl');resetWM();
   }catch(err){closeM('wMdl');resetWM();toast(err?.message?.includes('rejected')?'Connection rejected':(err?.message||'Failed').slice(0,80),'er');}
 }
@@ -939,4 +956,3 @@ window.addEventListener('resize',drawChart);
 </script>
 </body>
 </html>
-
