@@ -537,7 +537,7 @@ nav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-co
           <div id="wOn" style="display:none">
             <div class="wrow">
               <div class="wav"><svg viewBox="0 0 24 24" fill="white" width="14" height="14"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg></div>
-              <div><div class="wadr" id="wShort">—</div><div class="wnet">Arc Testnet · 5042002</div></div>
+              <div><div class="wadr" id="wShort">—</div><div class="wnet" id="wNetLabel">Arc Testnet</div></div>
               <button class="plink" onclick="showPg('profile')">Profile</button>
             </div>
             <div class="bgrid">
@@ -595,7 +595,7 @@ nav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-co
     <button class="mcls" onclick="closeM('wMdl')">&#x2715;</button>
     <div id="wOpts">
       <div class="mttl">Connect Wallet</div>
-      <div class="msub">Arc Testnet (Chain 5042002) is added automatically. Using 4 RPC endpoints with fallback.</div>
+      <div class="msub">Arc Testnet is added automatically. Chain ID is detected live from the RPC so your wallet never gets a mismatch.</div>
       <div class="wopts">
         <div class="wo" onclick="connW('metamask')"><div class="wi" style="background:rgba(249,115,22,0.1)"><img src="https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg" onerror="this.style.display='none'"/></div><div><div class="won">MetaMask</div><div class="wos">Browser extension</div></div></div>
         <div class="wo" onclick="connW('coinbase')"><div class="wi" style="background:rgba(0,82,255,0.1)"><svg viewBox="0 0 24 24" fill="#0052ff" width="18" height="18"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="white"/></svg></div><div><div class="won">Coinbase</div><div class="wos">Smart wallet</div></div></div>
@@ -673,37 +673,45 @@ const ARC_RPCS = [
   'https://rpc.drpc.testnet.arc.network',
   'https://rpc.quicknode.testnet.arc.network',
 ];
-const ARC_CHAIN_ID_HEX = '0x4CECA2'; // 5042002
-const ARC = {
-  chainId: ARC_CHAIN_ID_HEX,
+
+// Chain ID is determined dynamically from the live RPC so it always matches.
+// Official docs say 5042002 but the live RPC may return a different value —
+// we fetch the real chain ID first and use that for wallet_addEthereumChain.
+let ARC_CHAIN_ID_HEX = '0x4CECA2'; // default 5042002, overridden by initRPC
+const ARC_BASE = {
   chainName: 'Arc Testnet',
-  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   rpcUrls: ARC_RPCS,
   blockExplorerUrls: ['https://testnet.arcscan.app'],
 };
+// ARC object is rebuilt after initRPC resolves the real chain ID
+let ARC = { ...ARC_BASE, chainId: ARC_CHAIN_ID_HEX };
 
 let activeRPC = ARC_RPCS[0];
 let readProvider = null;
 
 // Try each RPC until one works
 async function initRPC() {
-  const bar = document.getElementById('rpcBar');
   for (const rpc of ARC_RPCS) {
     try {
       const p = new ethers.JsonRpcProvider(rpc);
-      const net = await Promise.race([p.getNetwork(), new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),5000))]);
+      const net = await Promise.race([
+        p.getNetwork(),
+        new Promise((_,r) => setTimeout(() => r(new Error('timeout')), 5000))
+      ]);
       readProvider = p;
       activeRPC = rpc;
-      const label = rpc.replace('https://','').split('.')[0];
-      bar.textContent = 'Connected: ' + rpc.replace('https://','');
-      bar.className = 'rpc-bar ok';
+      // Use the chain ID the RPC actually returns — this avoids wallet mismatch
+      const realChainId = Number(net.chainId);
+      ARC_CHAIN_ID_HEX = '0x' + realChainId.toString(16).toUpperCase();
+      ARC = { ...ARC_BASE, chainId: ARC_CHAIN_ID_HEX };
+      console.log('Arc RPC connected:', rpc, '| Chain ID:', realChainId, '| Hex:', ARC_CHAIN_ID_HEX);
       return true;
     } catch(e) {
       console.warn('RPC failed:', rpc, e.message);
     }
   }
-  bar.textContent = 'RPC connection failed — wallet tx will still work via injected provider';
-  bar.className = 'rpc-bar fail';
+  console.warn('All Arc RPCs failed — wallet inject will still work');
   return false;
 }
 
@@ -1047,6 +1055,7 @@ async function onConn(addr,rawProv){
   document.getElementById('wTxt').textContent=sh;
   // Update wallet panel
   document.getElementById('wShort').textContent=sh;
+  document.getElementById('wNetLabel').textContent='Arc Testnet · '+parseInt(ARC_CHAIN_ID_HEX,16);
   document.getElementById('wOff').style.display='none';
   document.getElementById('wOn').style.display='block';
   // Show trade form, hide CTA
@@ -1061,7 +1070,7 @@ async function onConn(addr,rawProv){
 
 async function updWBal(){
   if(!S.wallet||!S.provider)return;
-  try{const b=await S.provider.getBalance(S.wallet);document.getElementById('wUsd').textContent=parseFloat(ethers.formatUnits(b,6)).toFixed(2);}
+  try{const b=await S.provider.getBalance(S.wallet);document.getElementById('wUsd').textContent=parseFloat(ethers.formatUnits(b,18)).toFixed(4);}
   catch(e){document.getElementById('wUsd').textContent='—';}
   if(S.selTok){const b=S.selTok.holders?.[S.wallet]||0;document.getElementById('wTokBal').textContent=fN(b);}
 }
